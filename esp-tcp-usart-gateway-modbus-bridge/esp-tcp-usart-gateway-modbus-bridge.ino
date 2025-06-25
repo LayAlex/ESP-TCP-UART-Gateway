@@ -117,7 +117,7 @@ void updateLedStatus(bool clientConnected)
 // --- setup() ---
 void setup()
 {
-  Serial.begin(115200);
+  Serial.begin(57600);
   pinMode(STATUS_LED_PIN, OUTPUT);
   digitalWrite(STATUS_LED_PIN, HIGH); // LED off initially
 
