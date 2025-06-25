@@ -23,6 +23,8 @@ uint8_t slaveRunning = 0;  // Текущий slave ID запроса
 
 unsigned long lastBlinkTime = 0;
 bool ledState = false;
+
+
 Modbus::ResultCode cbTcpRaw(uint8_t *data, uint8_t len, void *custom)
 {
   auto src = (Modbus::frame_arg_t *)custom;
@@ -42,7 +44,6 @@ Modbus::ResultCode cbTcpRaw(uint8_t *data, uint8_t len, void *custom)
 
   if (clientIp == (uint32_t)0)
   {
-    // Запоминаем IP клиента при первом подключении
     clientIp = srcIp;
     Serial.print("New client connected: ");
     Serial.println(clientIp);
@@ -59,7 +60,8 @@ Modbus::ResultCode cbTcpRaw(uint8_t *data, uint8_t len, void *custom)
     return Modbus::EX_PASSTHROUGH;
   }
 
-  uint8_t reqSlaveId = data[0]; // Первый байт данных — slave ID
+  // Здесь берём slave id из структуры src, а не из data[0]
+  uint8_t reqSlaveId = src->unitId;
   Serial.print("Requested Slave ID: ");
   Serial.println(reqSlaveId);
 
@@ -75,15 +77,14 @@ Modbus::ResultCode cbTcpRaw(uint8_t *data, uint8_t len, void *custom)
 
     transRunning = src->transactionId;
 
-    // Здесь можно проверить и, если нужно, сдвинуть данные, если приходит с TCP заголовком
-    // Например, если data содержит TCP заголовок (6 байт), нужно пропустить их:
-    // Но для начала выводим как есть
-
     rtu.rawRequest(slaveRunning, data, len);
   }
 
   return Modbus::EX_SUCCESS;
 }
+
+
+
 // --- Callback: обработка входящих данных RTU (Modbus RTU ответ) ---
 Modbus::ResultCode cbRtuRaw(uint8_t *data, uint8_t len, void *custom)
 {
