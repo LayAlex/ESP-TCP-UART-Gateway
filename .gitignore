@@ -1,0 +1,48 @@
+# Ignore Visual Studio temporary files and build results
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+TestResults/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# exclude root bin folder
+!/bin/
+
+# Visual Studio 2015 cache/options directory
+.vs/
+
+# Any temporary files
+*.tmp
+
+# Word temporary (.doc, .docx)
+~$*.doc*
+
+# Excel temporary (.xls, .xlsx)
+~$*.xls*
+
+# Excel Backup File
+*.xlk
+
+# PowerPoint temporary (.ppt, .pptx)
+~$*.ppt*
+
+# Visio autosave temporary files (.vsd, .vsdx)
+*.~vsd*
+/other practice/RemoteDevicesWebApp/DBProject/RemoteDevicesWebApp.DataBase.dbmdl
+/other practice/RemoteDevicesWebApp/DBProject
+/packages/EntityFramework.6.2.0/tools/EntityFramework.PowerShell.Utility.dll
+/packages
