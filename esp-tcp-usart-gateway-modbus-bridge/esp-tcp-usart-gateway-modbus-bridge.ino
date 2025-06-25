@@ -2,8 +2,9 @@
 #include <ModbusTCP.h>
 #include <ModbusRTU.h>
 
-// Пины и параметры
-#define STATUS_LED_PIN D4 // Встроенный светодиод (инверсный)
+// --- Константы и настройки
+#define STATUS_LED_PIN D4
+
 const char *AP_SSID = "ESP-TCP-Gateway";
 const char *AP_PASSWORD = "12345678";
 
@@ -11,128 +12,82 @@ IPAddress LOCAL_IP(192, 168, 0, 108);
 IPAddress GATEWAY(192, 168, 0, 1);
 IPAddress SUBNET(255, 255, 255, 0);
 
-const unsigned long BLINK_INTERVAL = 1000; // Для индикации при отсутствии клиента
+const unsigned long BLINK_INTERVAL = 1000;
 
+// --- Modbus переменные
 ModbusRTU rtu;
 ModbusTCP tcp;
 
-IPAddress clientIp; // IP единственного TCP клиента
-
-uint16_t transRunning = 0; // ID текущей транзакции Modbus TCP
-uint8_t slaveRunning = 0;  // Текущий slave ID запроса
+IPAddress clientIp;
+uint16_t transRunning = 0;
+uint16_t lastTransactionId = 0;
+uint8_t slaveRunning = 0;
 
 unsigned long lastBlinkTime = 0;
 bool ledState = false;
 
-
+// --- Обработка входящего TCP запроса ---
 Modbus::ResultCode cbTcpRaw(uint8_t *data, uint8_t len, void *custom)
 {
   auto src = (Modbus::frame_arg_t *)custom;
   IPAddress srcIp = IPAddress(src->ipaddr);
 
-  Serial.print("cbTcpRaw called. len=");
-  Serial.println(len);
-  Serial.print("From IP: ");
-  Serial.println(srcIp);
-
-  Serial.print("Data bytes: ");
-  for (int i = 0; i < len; i++)
-  {
-    Serial.printf("%02X ", data[i]);
-  }
-  Serial.println();
-
   if (clientIp == (uint32_t)0)
   {
     clientIp = srcIp;
-    Serial.print("New client connected: ");
-    Serial.println(clientIp);
   }
   else if (clientIp != srcIp)
   {
-    Serial.println("Different client tried to connect - passthrough");
     return Modbus::EX_PASSTHROUGH;
   }
 
   if (len < 1)
   {
-    Serial.println("Data length < 1 - passthrough");
     return Modbus::EX_PASSTHROUGH;
   }
 
-  // Здесь берём slave id из структуры src, а не из data[0]
   uint8_t reqSlaveId = src->unitId;
-  Serial.print("Requested Slave ID: ");
-  Serial.println(reqSlaveId);
 
   if (!src->to_server && transRunning == src->transactionId)
   {
-    Serial.println("Response from RTU received, forwarding to TCP client");
+    // RTU ответ пришел, пробрасываем назад
     rtu.rawResponce(slaveRunning, data, len);
   }
   else
   {
-    Serial.println("New Modbus TCP request, forwarding to RTU");
     slaveRunning = reqSlaveId;
-
     transRunning = src->transactionId;
+    lastTransactionId = src->transactionId;
 
+    // Отправляем запрос в RTU
     rtu.rawRequest(slaveRunning, data, len);
   }
 
   return Modbus::EX_SUCCESS;
 }
 
-
-
-// --- Callback: обработка входящих данных RTU (Modbus RTU ответ) ---
+// --- Обработка ответа от RTU ---
 Modbus::ResultCode cbRtuRaw(uint8_t *data, uint8_t len, void *custom)
 {
-  auto src = (Modbus::frame_arg_t *)custom;
+  // Устанавливаем идентификатор транзакции перед отправкой TCP ответа
+  tcp.setTransactionId(lastTransactionId);
 
-  if (clientIp == (uint32_t)0)
+  // Отправляем TCP-ответ
+  bool sent = tcp.rawResponce(clientIp, data, len, slaveRunning);
+  if (!sent)
   {
-
     return Modbus::EX_DEVICE_FAILED_TO_RESPOND;
   }
 
-  // Отправляем ответ Modbus TCP клиенту
-  if (!tcp.isConnected(clientIp))
-  {
-    if (!tcp.connect(clientIp))
-    {
+  // Сброс состояния
+  transRunning = 0;
+  slaveRunning = 0;
+  lastTransactionId = 0;
 
-      rtu.errorResponce(src->slaveId, (Modbus::FunctionCode)data[0], Modbus::EX_DEVICE_FAILED_TO_RESPOND);
-      return Modbus::EX_DEVICE_FAILED_TO_RESPOND;
-    }
-  }
-
-  // Копируем данные в буфер
-  uint8_t data_buf[256];
-  if (len > sizeof(data_buf))
-  {
-
-    return Modbus::EX_PASSTHROUGH;
-  }
-  memcpy(data_buf, data, len);
-
-  // Отправляем ответ TCP клиенту (rawRequest используется и для ответов)
-  transRunning = tcp.rawRequest(
-      clientIp, data_buf, len,
-      [](Modbus::ResultCode event, uint16_t transactionId, void *) -> bool
-      {
-        if (event != Modbus::EX_SUCCESS)
-        {
-        }
-        return true;
-      },
-      MODBUSIP_UNIT);
-
-  slaveRunning = 0; // Сбрасываем
   return Modbus::EX_SUCCESS;
 }
 
-// --- Setup WiFi AP ---
+// --- Настройка точки доступа WiFi ---
 void setupWiFi()
 {
   WiFi.mode(WIFI_AP);
@@ -140,13 +95,13 @@ void setupWiFi()
   WiFi.softAP(AP_SSID, AP_PASSWORD);
 }
 
-// --- LED update ---
+// --- Индикация подключения ---
 void updateLedStatus(bool clientConnected)
 {
   unsigned long now = millis();
   if (clientConnected)
   {
-    digitalWrite(STATUS_LED_PIN, LOW); // Светодиод включен (инверсный)
+    digitalWrite(STATUS_LED_PIN, LOW);
   }
   else
   {
@@ -159,27 +114,28 @@ void updateLedStatus(bool clientConnected)
   }
 }
 
+// --- setup() ---
 void setup()
 {
   Serial.begin(115200);
   pinMode(STATUS_LED_PIN, OUTPUT);
-  digitalWrite(STATUS_LED_PIN, HIGH); // Выключен
+  digitalWrite(STATUS_LED_PIN, HIGH); // LED off initially
 
   setupWiFi();
 
   tcp.server();
   tcp.onRaw(cbTcpRaw);
 
-  rtu.begin(&Serial);  
+  rtu.begin(&Serial);
   rtu.onRaw(cbRtuRaw);
 }
 
+// --- loop() ---
 void loop()
 {
   rtu.task();
   tcp.task();
 
   updateLedStatus(transRunning > 0);
-
   yield();
 }
